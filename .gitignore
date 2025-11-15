@@ -7,3 +7,5 @@ results/
 configs/
 
 *.log
+
+*.weights.h5

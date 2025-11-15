@@ -1,1 +1,178 @@
-# TODO
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import gc
+from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.metrics import AUC, BinaryAccuracy, Precision, Recall
+
+os.chdir(Path(__file__).resolve().parent)
+
+# seeds
+np.random.seed(42)
+tf.keras.utils.set_random_seed(42)
+
+LABEL_COL = "is_sepsis"
+NODES = 10               ## TODO: fissare nodi
+DATA_DIR = Path(f"../../datasets/{NODES}nodes")
+TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
+
+# parametri fissi
+EPOCHS = 25              ## TODO: fissare parametri
+BATCH_SIZE = 64         ## TODO: fissare parametri
+LEARNING_RATE = 0.001   ## TODO: fissare parametri
+
+# fixed output values
+OUTPUT_USER = "central"
+OUTPUT_SPLITS = 100
+OUTPUT_COLUMNS = ["datetime", "user", "splits", "loss", "auc", "auprc", "accuracy", "precision", "recall", "iteration"]
+
+# ==========================
+# DEFINIZIONE MODELLO FCN
+# ==========================
+def build_fcn(input_dim: int) -> keras.Model:
+    """Costruisce una Fully Connected Network come in mimic_nets.py"""
+    kernel_initializer = tf.keras.initializers.GlorotUniform(seed=42)
+    bias_initializer = tf.keras.initializers.Zeros()
+
+    model = keras.Sequential([
+        keras.layers.Dense(16, activation="relu", input_shape=(input_dim,), kernel_initializer=kernel_initializer, bias_initializer=bias_initializer),
+        keras.layers.Dense(16, activation="relu", kernel_initializer=kernel_initializer, bias_initializer=bias_initializer),
+        keras.layers.Dense(16, activation="relu", kernel_initializer=kernel_initializer, bias_initializer=bias_initializer),
+        keras.layers.Dense(1, activation="sigmoid", kernel_initializer=kernel_initializer, bias_initializer=bias_initializer)
+    ])
+    return model
+
+
+def get_optimizer():
+    return tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+
+
+def get_metrics():
+    return [
+        AUC(name='auc', curve='ROC', num_thresholds=1000),
+        AUC(name='auprc', curve='PR', num_thresholds=1000),
+        BinaryAccuracy(name='accuracy'),
+        Precision(name='precision'),
+        Recall(name='recall')
+    ]
+
+
+# ==========================
+# FUNZIONI DI UTILITÀ
+# ==========================
+def load_and_concat_nodes(x_nodes: int, iteration_y: int) -> pd.DataFrame:
+    """Carica e concatena node{i}_{y}.csv per i=1..x"""
+    dfs = []
+    for i in range(1, x_nodes + 1):
+        f = DATA_DIR / f"node{i}_{iteration_y}.csv"
+        if not f.exists():
+            raise FileNotFoundError(f"File mancante: {f}")
+        dfs.append(pd.read_csv(f))
+    return pd.concat(dfs, axis=0, ignore_index=True)
+
+
+def prepare_xy(df: pd.DataFrame, feature_columns=None):
+    if LABEL_COL not in df.columns:
+        raise KeyError(f"Label column '{LABEL_COL}' non trovata nel dataframe.")
+    if feature_columns is None:
+        X_cols = [c for c in df.columns if c != LABEL_COL]
+    else:
+        X_cols = feature_columns
+    missing = [c for c in X_cols if c not in df.columns]
+    for c in missing:
+        df[c] = 0.0
+    X = df[X_cols].astype(np.float32).to_numpy()
+    y = df[LABEL_COL].astype(np.float32).to_numpy().reshape(-1, 1)
+    return X, y, X_cols
+
+
+def ensure_dir(path: Path):
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def append_result_csv(path: Path, row: dict):
+    full = {col: row.get(col, None) for col in OUTPUT_COLUMNS}
+    df_row = pd.DataFrame([full], columns=OUTPUT_COLUMNS)
+    if path.exists():
+        df_row.to_csv(path, mode='a', header=False, index=False)
+    else:
+        df_row.to_csv(path, mode='w', header=True, index=False)
+
+
+def current_datetime_rome_iso():
+    return datetime.now(ZoneInfo("Europe/Rome")).isoformat()
+
+
+# ==========================
+# TRAIN + EVAL
+# ==========================
+def train_and_eval(x_nodes: int, iteration_y: int, epochs: int, batch_size: int, verbose=0):
+    print(f"\n=== x_nodes={x_nodes}, iteration={iteration_y} ===")
+
+    df_train = load_and_concat_nodes(x_nodes, iteration_y)
+    if not TEST_FILE.exists():
+        raise FileNotFoundError(f"Test file mancante: {TEST_FILE}")
+    df_test = pd.read_csv(TEST_FILE)
+
+    X_train, y_train, feature_cols = prepare_xy(df_train)
+    X_test, y_test, _ = prepare_xy(df_test, feature_columns=feature_cols)
+
+    input_dim = X_train.shape[1]
+    print(f"Train samples: {X_train.shape[0]}, Test samples: {X_test.shape[0]}, input_dim={input_dim}")
+
+    model = build_fcn(input_dim)
+    model.compile(
+        optimizer=get_optimizer(),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        metrics=get_metrics()
+    )
+
+    model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=verbose, shuffle=True)
+    eval_results = model.evaluate(X_test, y_test, batch_size=batch_size, verbose=0, return_dict=True)
+
+    tf.keras.backend.clear_session()
+    del model
+    gc.collect()
+
+    return eval_results
+
+
+# ==========================
+# MAIN LOOP
+# ==========================
+def main():
+    for x in range(2, NODES + 1):
+        out_dir = Path(f"../../results/{NODES}nodes_results/1host_{x}nodes/central_results")
+        ensure_dir(out_dir)
+        out_file = out_dir / "central_results.csv"
+
+        for y in range(10):
+            results = train_and_eval(x_nodes=x, iteration_y=y, epochs=EPOCHS, batch_size=BATCH_SIZE)
+
+            row = {
+                "datetime": current_datetime_rome_iso(),
+                "user": OUTPUT_USER,
+                "splits": OUTPUT_SPLITS,
+                'loss': results['loss'],
+                'auc': results['auc'],
+                'auprc': results['auprc'],
+                'accuracy': results['accuracy'],
+                'precision': results['precision'],
+                'recall': results['recall'],
+                "iteration": y
+            }
+            append_result_csv(out_file, row)
+            print(f"Salvato risultato in {out_file}")
+
+
+if __name__ == "__main__":
+    main()
