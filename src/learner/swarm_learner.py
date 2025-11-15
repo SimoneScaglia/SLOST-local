@@ -14,6 +14,7 @@ import datetime
 import getpass
 from tensorflow.keras.metrics import AUC, Precision, Recall, Accuracy
 import sys
+import glob
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -334,15 +335,25 @@ class SwarmLearner:
         
         return aggregated_weights
 
+    def cleanup_weights(self):
+        """Remove all .h5 weights files after the process ends"""
+        weight_files = glob.glob(f"{self.weights_dir}/*.h5")
+        for file in weight_files:
+            try:
+                os.remove(file)
+                print(f"Removed weight file: {file}")
+            except OSError as e:
+                print(f"Error removing file {file}: {e}")
+
     def run(self):
         """Start the swarm learning process"""
         print(f"Starting Swarm Learning Experiment: {self.experiment_name}")
-        
+
         # Start orchestrator thread
         orchestrator_thread = threading.Thread(target=self.orchestrator_process)
         orchestrator_thread.daemon = True
         orchestrator_thread.start()
-        
+
         # Start node threads - CORRETTO: ora node_id va da 0 a num_nodes-1
         node_threads = []
         for node_id in range(self.num_nodes):
@@ -350,7 +361,7 @@ class SwarmLearner:
             thread.daemon = True
             thread.start()
             node_threads.append(thread)
-        
+
         # Wait for completion
         try:
             orchestrator_thread.join()
@@ -358,6 +369,9 @@ class SwarmLearner:
                 thread.join()
         except KeyboardInterrupt:
             print("Experiment interrupted by user")
+        finally:
+            # Cleanup weight files
+            self.cleanup_weights()
 
 if __name__ == "__main__":
     import sys
