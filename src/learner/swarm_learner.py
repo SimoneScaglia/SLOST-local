@@ -16,8 +16,16 @@ from tensorflow.keras.metrics import AUC, Precision, Recall, BinaryAccuracy
 import sys
 import glob
 import traceback
+import random
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+random.seed(42)
+np.random.seed(42)
+tf.random.set_seed(42)
+os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+os.environ['TF_DETERMINISTIC_OPS'] = '1'  # CRITICAL: Ensure deterministic operations
+os.environ['PYTHONHASHSEED'] = str(42)
 
 class SwarmLearner:
     def __init__(self, config_path: str):
@@ -49,7 +57,7 @@ class SwarmLearner:
         os.makedirs(self.weights_dir, exist_ok=True)
         
         # Create results directory
-        self.results_dir = f"results/{self.experiment_name}_results"
+        self.results_dir = self.config["results_directory"]
         os.makedirs(self.results_dir, exist_ok=True)
         self.results_file = f"{self.results_dir}/swarm_results.csv"
         self.init_results_file()
@@ -150,7 +158,7 @@ class SwarmLearner:
 
     def load_node_data(self, node_id: int):
         """Load dataset for specific node"""
-        data_path = f"{self.data_dir}node{node_id+1}.csv"
+        data_path = f"{self.data_dir}node{node_id+1}_{self.iteration}.csv"
         data = pd.read_csv(data_path)
         
         # Assume last column is target
