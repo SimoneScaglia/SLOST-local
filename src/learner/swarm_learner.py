@@ -12,7 +12,7 @@ from importlib import import_module
 import h5py
 import datetime
 import getpass
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_score, recall_score, accuracy_score
+from tensorflow.keras.metrics import AUC, Precision, Recall, Accuracy
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -88,26 +88,24 @@ class SwarmLearner:
     def evaluate_model(self, model):
         """Evaluate model and return metrics"""
         x_test, y_test = self.test_data
-        
+
         # Predict probabilities
         y_pred_proba = model.predict(x_test, verbose=0)
         y_pred = (y_pred_proba > 0.5).astype(int)
-        
+
         # Calculate metrics
         loss = model.evaluate(x_test, y_test, verbose=0)[0]
-        auc = roc_auc_score(y_test, y_pred_proba)
-        auprc = average_precision_score(y_test, y_pred_proba)
-        accuracy = accuracy_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred, zero_division=0)
-        recall = recall_score(y_test, y_pred, zero_division=0)
-        
+        auc = AUC()(y_test, y_pred_proba).numpy()
+        precision = Precision()(y_test, y_pred).numpy()
+        recall = Recall()(y_test, y_pred).numpy()
+        accuracy = Accuracy()(y_test, y_pred).numpy()
+
         return {
             'loss': loss,
             'auc': auc,
-            'auprc': auprc,
-            'accuracy': accuracy,
             'precision': precision,
-            'recall': recall
+            'recall': recall,
+            'accuracy': accuracy
         }
 
     def create_model(self):
