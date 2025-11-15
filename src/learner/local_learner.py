@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import sys
 import gc
 import pickle
 from pathlib import Path
@@ -61,10 +60,6 @@ def build_fcn(input_dim: int) -> keras.Model:
     return model
 
 
-def get_optimizer():
-    return tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-
-
 def get_metrics():
     return [
         AUC(name='auc', curve='ROC', num_thresholds=1000),
@@ -115,20 +110,22 @@ def current_datetime_rome_iso():
 # ==========================
 # TRAIN + EVAL
 # ==========================
-def train_and_eval(node_idx: int, iteration_y: int, epochs: int, batch_size: int, verbose=0):
+def train_and_eval(node_idx: int, iteration_y: int, epochs: int, batch_size: int, learning_rate: float, data_dir: Path, test_file: Path, verbose=0):
     # ogni processo figlio riallinea i seed per riproducibilità
     np.random.seed(42)
     tf.keras.utils.set_random_seed(42)
 
     print(f"=== computing node={node_idx}, iteration={iteration_y} ===")
-    train_file = DATA_DIR / f"node{node_idx}_{iteration_y}.csv"
+
+    train_file = data_dir / f"node{node_idx}_{iteration_y}.csv"
     if not train_file.exists():
         raise FileNotFoundError(f"File mancante: {train_file}")
 
+    if not test_file.exists():
+        raise FileNotFoundError(f"Test file mancante o non impostato: {test_file}")
+
     df_train = pd.read_csv(train_file)
-    if not TEST_FILE.exists():
-        raise FileNotFoundError(f"Test file mancante: {TEST_FILE}")
-    df_test = pd.read_csv(TEST_FILE)
+    df_test = pd.read_csv(test_file)
 
     # align features
     X_train, y_train, feature_cols = prepare_xy(df_train, feature_columns=None)
@@ -139,8 +136,9 @@ def train_and_eval(node_idx: int, iteration_y: int, epochs: int, batch_size: int
 
     # build and train
     model = build_fcn(input_dim=input_dim)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     model.compile(
-        optimizer=get_optimizer(),
+        optimizer=optimizer,
         loss=tf.keras.losses.BinaryCrossentropy(),
         metrics=get_metrics()
     )
@@ -159,10 +157,10 @@ def train_and_eval(node_idx: int, iteration_y: int, epochs: int, batch_size: int
 
 
 # wrapper robusto usato dal pool: ritorna una tupla (node, iteration, results or None, error_message)
-def safe_worker(args: Tuple[int, int, int, int]):
-    node_idx, iteration_y, epochs, batch_size = args
+def safe_worker(args: Tuple[int, int, int, int, float, Path, Path]):
+    node_idx, iteration_y, epochs, batch_size, learning_rate, data_dir, test_file = args
     try:
-        res = train_and_eval(node_idx, iteration_y, epochs, batch_size)
+        res = train_and_eval(node_idx, iteration_y, epochs, batch_size, learning_rate, data_dir, test_file)
         return (node_idx, iteration_y, res, None)
     except FileNotFoundError as e:
         # file mancante: non è un errore fatale per lo script, semplicemente saltiamo
@@ -249,7 +247,7 @@ def main():
         procs = MAX_PROCESSES or min(12, mp.cpu_count())
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=procs) as pool:
-            results = pool.map(safe_worker, tasks_to_run)
+            results = pool.map(safe_worker, [(t[0], t[1], t[2], t[3], LEARNING_RATE, DATA_DIR, TEST_FILE) for t in tasks_to_run])
 
         # processa i risultati
         for node_idx, iteration_y, res, err in results:
