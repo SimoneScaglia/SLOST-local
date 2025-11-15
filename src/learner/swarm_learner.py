@@ -12,7 +12,7 @@ from importlib import import_module
 import h5py
 import datetime
 import getpass
-from tensorflow.keras.metrics import AUC, Precision, Recall, Accuracy
+from tensorflow.keras.metrics import AUC, Precision, Recall, BinaryAccuracy
 import sys
 import glob
 
@@ -90,24 +90,12 @@ class SwarmLearner:
         """Evaluate model and return metrics"""
         x_test, y_test = self.test_data
 
-        # Predict probabilities
-        y_pred_proba = model.predict(x_test, verbose=0)
-        y_pred = (y_pred_proba > 0.5).astype(int)
+        eval_results = model.evaluate(x_test, y_test, verbose=0)
+        metric_names = ['loss', 'auc', 'auprc', 'accuracy', 'precision', 'recall']
 
-        # Calculate metrics
-        loss = model.evaluate(x_test, y_test, verbose=0)[0]
-        auc = AUC()(y_test, y_pred_proba).numpy()
-        precision = Precision()(y_test, y_pred).numpy()
-        recall = Recall()(y_test, y_pred).numpy()
-        accuracy = Accuracy()(y_test, y_pred).numpy()
+        results_dict = dict(zip(metric_names, eval_results))
 
-        return {
-            'loss': loss,
-            'auc': auc,
-            'precision': precision,
-            'recall': recall,
-            'accuracy': accuracy
-        }
+        return results_dict
 
     def create_model(self):
         """Create model instance with correct input dimension"""
@@ -115,7 +103,13 @@ class SwarmLearner:
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=self.config["hyperparameters"]["learning_rate"]),
             loss='binary_crossentropy',
-            metrics=['accuracy']
+            metrics=[
+                AUC(name='auc', curve='ROC', num_thresholds=1000),
+                AUC(name='auprc', curve='PR', num_thresholds=1000),
+                BinaryAccuracy(name='accuracy'),
+                Precision(name='precision'),
+                Recall(name='recall')
+            ]
         )
         return model
 
@@ -194,8 +188,6 @@ class SwarmLearner:
         
         # Get node weight for metrics
         node_weight = self.calculate_node_weight(node_id)
-        
-        # CORRETTO: current_weights deve essere inizializzata qui e resa persistente
         current_weights = model.get_weights()
         
         while True:
