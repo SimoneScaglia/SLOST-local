@@ -11,3 +11,7 @@ configs/
 *.weights.h5
 
 *.png
+
+run-swarm.sh
+run-central.sh
+run-local.sh
