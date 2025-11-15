@@ -7,6 +7,7 @@ import gc
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import argparse
 
 import pandas as pd
 import numpy as np
@@ -21,14 +22,14 @@ np.random.seed(42)
 tf.keras.utils.set_random_seed(42)
 
 LABEL_COL = "is_sepsis"
-NODES = 10               ## TODO: fissare nodi
-DATA_DIR = Path(f"../../datasets/{NODES}nodes")
-TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
+NODES = None
+DATA_DIR = None
+TEST_FILE = None
 
 # parametri fissi
-EPOCHS = 25              ## TODO: fissare parametri
-BATCH_SIZE = 64         ## TODO: fissare parametri
-LEARNING_RATE = 0.001   ## TODO: fissare parametri
+EPOCHS = None
+BATCH_SIZE = None
+LEARNING_RATE = None
 
 # fixed output values
 OUTPUT_USER = "central"
@@ -145,11 +146,28 @@ def train_and_eval(x_nodes: int, iteration_y: int, epochs: int, batch_size: int,
 
     return eval_results
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run global learner with configurable parameters.")
+    parser.add_argument("-n", "--nodes", type=int, required=True, help="Number of nodes.")
+    parser.add_argument("-e", "--epochs", type=int, required=True, help="Number of epochs.")
+    parser.add_argument("-b", "--batch_size", type=int, required=True, help="Batch size.")
+    parser.add_argument("-l", "--learning_rate", type=float, required=True, help="Learning rate.")
+    return parser.parse_args()
 
 # ==========================
 # MAIN LOOP
 # ==========================
 def main():
+    args = parse_args()
+
+    global NODES, DATA_DIR, TEST_FILE, EPOCHS, BATCH_SIZE, LEARNING_RATE
+    NODES = args.nodes
+    DATA_DIR = Path(f"../../datasets/{NODES}nodes")
+    TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
+    EPOCHS = args.epochs
+    BATCH_SIZE = args.batch_size
+    LEARNING_RATE = args.learning_rate
+
     for x in range(2, NODES + 1):
         out_dir = Path(f"../../results/{NODES}nodes_results/1host_{x}nodes/central_results")
         ensure_dir(out_dir)

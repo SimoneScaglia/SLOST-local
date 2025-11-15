@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Tuple, Optional
+import argparse
 
 import pandas as pd
 import numpy as np
@@ -22,14 +23,14 @@ np.random.seed(42)
 tf.keras.utils.set_random_seed(42)
 
 LABEL_COL = "is_sepsis"
-NODES = 10              ## TODO: fissare nodi
-DATA_DIR = Path(f"../../datasets/{NODES}nodes")
-TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
+NODES = None
+DATA_DIR = None
+TEST_FILE = None
 
 # parametri fissi
-EPOCHS = 25             ## TODO: fissare parametri
-BATCH_SIZE = 64        ## TODO: fissare parametri
-LEARNING_RATE = 0.001  ## TODO: fissare parametri
+EPOCHS = None
+BATCH_SIZE = None
+LEARNING_RATE = None
 
 # fixed output values
 OUTPUT_USER = "local"
@@ -197,7 +198,26 @@ def build_tasks(pairs_keys):
     return tasks
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run local learner with configurable parameters.")
+    parser.add_argument("-n", "--nodes", type=int, required=True, help="Number of nodes.")
+    parser.add_argument("-e", "--epochs", type=int, required=True, help="Number of epochs.")
+    parser.add_argument("-b", "--batch_size", type=int, required=True, help="Batch size.")
+    parser.add_argument("-l", "--learning_rate", type=float, required=True, help="Learning rate.")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    global NODES, DATA_DIR, TEST_FILE, EPOCHS, BATCH_SIZE, LEARNING_RATE
+    NODES = args.nodes
+    DATA_DIR = Path(f"../../datasets/{NODES}nodes")
+    TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
+    EPOCHS = args.epochs
+    BATCH_SIZE = args.batch_size
+    LEARNING_RATE = args.learning_rate
+
     config_nodes = list(range(2, NODES + 1))
     iterations = list(range(10))
 
