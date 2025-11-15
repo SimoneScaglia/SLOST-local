@@ -15,6 +15,7 @@ import getpass
 from tensorflow.keras.metrics import AUC, Precision, Recall, BinaryAccuracy
 import sys
 import glob
+import traceback
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -53,7 +54,7 @@ class SwarmLearner:
         self.results_file = f"{self.results_dir}/swarm_results.csv"
         self.init_results_file()
         
-        # Queues for communication - CORRETTO: ora usa indici da 0 a num_nodes-1
+        # Queues for communication
         self.aggregator_queue = queue.Queue()
         self.node_queues = [queue.Queue() for _ in range(self.num_nodes)]
         
@@ -62,6 +63,33 @@ class SwarmLearner:
         self.aggregator_node = 0
         self.node_weights = {}
         
+        # Error handling
+        self.error_occurred = False
+        self.error_lock = threading.Lock()
+        self.error_message = None
+        self.error_traceback = None
+        
+        # Thread tracking
+        self.active_threads = []
+        self.shutdown_event = threading.Event()
+    
+    def record_error(self, error_msg: str):
+        """Record an error and signal shutdown"""
+        with self.error_lock:
+            if not self.error_occurred:
+                self.error_occurred = True
+                self.error_message = error_msg
+                self.error_traceback = traceback.format_exc()
+                print(f"ERROR RECORDED: {error_msg}")
+                print(f"TRACEBACK: {self.error_traceback}")
+                # Signal shutdown
+                self.shutdown_event.set()
+    
+    def check_errors(self):
+        """Check if any errors occurred"""
+        with self.error_lock:
+            return self.error_occurred, self.error_message, self.error_traceback
+
     def init_results_file(self):
         """Initialize results CSV file with headers"""
         if not os.path.exists(self.results_file):
@@ -115,7 +143,6 @@ class SwarmLearner:
 
     def load_node_data(self, node_id: int):
         """Load dataset for specific node"""
-        # CORRETTO: ora node_id va da 0 a num_nodes-1
         data_path = f"{self.data_dir}node{node_id+1}.csv"
         data = pd.read_csv(data_path)
         
@@ -127,179 +154,238 @@ class SwarmLearner:
 
     def calculate_node_weight(self, node_id: int) -> float:
         """Calculate weight based on configuration"""
-        # CORRETTO: ora node_id va da 0 a num_nodes-1, ma nel JSON sono da 1 a num_nodes
         return self.node_weights_config[str(node_id+1)]
 
     def orchestrator_process(self):
         """Orchestrator that manages aggregation rounds and selects aggregators"""
-        print("Orchestrator started")
+        try:
+            print("Orchestrator started")
+            
+            while (self.current_round < self.num_aggregation_rounds and 
+                   not self.shutdown_event.is_set()):
+                print(f"Starting aggregation round {self.current_round}")
+                
+                # Check for errors before proceeding
+                if self.shutdown_event.is_set():
+                    break
+                
+                # Calculate weights for this round from configuration
+                self.node_weights = {}
+                total_weight = 0
+                
+                for node_id in range(self.num_nodes):
+                    weight = self.calculate_node_weight(node_id)
+                    self.node_weights[node_id] = weight
+                    total_weight += weight
+                
+                # Normalize weights
+                for node_id in self.node_weights:
+                    self.node_weights[node_id] /= total_weight
+                
+                # Select aggregator (round-robin)
+                self.aggregator_node = self.current_round % self.num_nodes
+                print(f"Selected node {self.aggregator_node} as aggregator for round {self.current_round}")
+                
+                # Notify aggregator
+                self.node_queues[self.aggregator_node].put({
+                    'type': 'aggregator',
+                    'round': self.current_round,
+                    'weights': self.node_weights
+                })
+                
+                # Notify other nodes
+                for node_id in range(self.num_nodes):
+                    if node_id != self.aggregator_node:
+                        self.node_queues[node_id].put({
+                            'type': 'worker',
+                            'round': self.current_round,
+                            'aggregator': self.aggregator_node
+                        })
+                
+                # Wait for aggregation completion with timeout
+                try:
+                    aggregator_done = self.aggregator_queue.get(timeout=300)  # 5min timeout
+                    if aggregator_done['round'] == self.current_round:
+                        print(f"Aggregation round {self.current_round} completed")
+                        self.current_round += 1
+                except queue.Empty:
+                    print(f"Timeout waiting for aggregator in round {self.current_round}")
+                    self.record_error(f"Orchestrator timeout in round {self.current_round}")
+                    break
+                
+                time.sleep(1)  # Small delay between rounds
+                
+        except Exception as e:
+            self.record_error(f"Orchestrator error: {str(e)}")
         
-        while self.current_round < self.num_aggregation_rounds:
-            print(f"Starting aggregation round {self.current_round}")
-            
-            # Calculate weights for this round from configuration
-            self.node_weights = {}
-            total_weight = 0
-            
-            # CORRETTO: ora node_id va da 0 a num_nodes-1
-            for node_id in range(self.num_nodes):
-                weight = self.calculate_node_weight(node_id)
-                self.node_weights[node_id] = weight
-                total_weight += weight
-            
-            # Normalize weights
-            for node_id in self.node_weights:
-                self.node_weights[node_id] /= total_weight
-            
-            # Select aggregator (round-robin) - CORRETTO: ora node_id va da 0 a num_nodes-1
-            self.aggregator_node = self.current_round % self.num_nodes
-            print(f"Selected node {self.aggregator_node} as aggregator for round {self.current_round}")
-            
-            # Notify aggregator - CORRETTO: usa indici 0-based
-            self.node_queues[self.aggregator_node].put({
-                'type': 'aggregator',
-                'round': self.current_round,
-                'weights': self.node_weights
-            })
-            
-            # Notify other nodes - CORRETTO: usa indici 0-based
-            for node_id in range(self.num_nodes):
-                if node_id != self.aggregator_node:
-                    self.node_queues[node_id].put({
-                        'type': 'worker',
-                        'round': self.current_round,
-                        'aggregator': self.aggregator_node
-                    })
-            
-            # Wait for aggregation completion
-            aggregator_done = self.aggregator_queue.get()
-            if aggregator_done['round'] == self.current_round:
-                print(f"Aggregation round {self.current_round} completed")
-                self.current_round += 1
-            
-            time.sleep(1)  # Small delay between rounds
+        print("Orchestrator finished")
 
     def node_process(self, node_id: int):
         """Process for individual node"""
-        print(f"Node {node_id} started")
-        
-        model = self.create_model()
-        x, y = self.load_node_data(node_id)
-        
-        # Get node weight for metrics
-        node_weight = self.calculate_node_weight(node_id)
-        current_weights = model.get_weights()
-        
-        while True:
-            try:
-                message = self.node_queues[node_id].get(timeout=300)  # 5min timeout
-                
-                if message['type'] == 'aggregator':
-                    current_weights = self.aggregator_behavior(node_id, model, x, y, message, current_weights)
-                elif message['type'] == 'worker':
-                    current_weights = self.worker_behavior(node_id, model, x, y, message, node_weight, current_weights)
+        try:
+            print(f"Node {node_id} started")
+            
+            model = self.create_model()
+            x, y = self.load_node_data(node_id)
+            
+            # Get node weight for metrics
+            node_weight = self.calculate_node_weight(node_id)
+            
+            current_weights = model.get_weights()
+            
+            while not self.shutdown_event.is_set():
+                try:
+                    # Use timeout to periodically check for shutdown
+                    message = self.node_queues[node_id].get(timeout=1)
                     
-            except queue.Empty:
-                print(f"Node {node_id} timeout")
-                break
+                    if self.shutdown_event.is_set():
+                        break
+                        
+                    if message['type'] == 'aggregator':
+                        current_weights = self.aggregator_behavior(node_id, model, x, y, message, current_weights)
+                    elif message['type'] == 'worker':
+                        current_weights = self.worker_behavior(node_id, model, x, y, message, node_weight, current_weights)
+                        
+                except queue.Empty:
+                    # Check for shutdown and continue
+                    continue
+                except Exception as e:
+                    self.record_error(f"Node {node_id} message processing error: {str(e)}")
+                    break
+            
+        except Exception as e:
+            self.record_error(f"Node {node_id} error: {str(e)}")
         
         print(f"Node {node_id} finished")
 
     def worker_behavior(self, node_id: int, model, x, y, message, node_weight: float, current_weights):
         """Behavior for worker nodes"""
-        round_num = message['round']
-        aggregator = message['aggregator']
-        
-        print(f"Node {node_id} working on round {round_num}")
-        
-        # Train for local epochs - CORRETTO: usa current_weights passata come parametro
-        model.set_weights(current_weights)
-        history = model.fit(x, y, 
-                          epochs=self.aggregation_per_epoch,
-                          batch_size=self.config["hyperparameters"]["batch_size"],
-                          verbose=0)
-        
-        # Save weights - CORRETTO: ora node_id è 0-based, ma nel filename usiamo 1-based
-        weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
-        model.save_weights(weight_file)
-        print(f"Node {node_id} saved weights for round {round_num}")
-        
-        # Evaluate and save metrics
-        metrics = self.evaluate_model(model)
-        self.save_metrics(f"node_{node_id+1}", node_weight, metrics)
-        
-        # Wait for aggregated weights
-        aggregated_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{round_num}.weights.h5"
-        
-        while not os.path.exists(aggregated_file):
-            time.sleep(5)
-        
-        # Load aggregated weights
-        model.load_weights(aggregated_file)
-        current_weights = model.get_weights()
-        print(f"Node {node_id} loaded aggregated weights for round {round_num}")
-        
-        return current_weights  # CORRETTO: restituisce i pesi aggiornati
+        try:
+            round_num = message['round']
+            aggregator = message['aggregator']
+            
+            print(f"Node {node_id} working on round {round_num}")
+            
+            # Check for shutdown
+            if self.shutdown_event.is_set():
+                return current_weights
+            
+            # Train for local epochs
+            model.set_weights(current_weights)
+            history = model.fit(x, y, 
+                              epochs=self.aggregation_per_epoch,
+                              batch_size=self.config["hyperparameters"]["batch_size"],
+                              verbose=0)
+            
+            # Save weights
+            weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
+            model.save_weights(weight_file)
+            print(f"Node {node_id} saved weights for round {round_num}")
+            
+            # Evaluate and save metrics
+            metrics = self.evaluate_model(model)
+            self.save_metrics(f"node_{node_id+1}", node_weight, metrics)
+            
+            # Wait for aggregated weights with timeout and shutdown checks
+            aggregated_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{round_num}.weights.h5"
+            
+            wait_start = time.time()
+            while not os.path.exists(aggregated_file) and not self.shutdown_event.is_set():
+                if time.time() - wait_start > 300:  # 5min timeout
+                    self.record_error(f"Node {node_id} timeout waiting for aggregated weights in round {round_num}")
+                    return current_weights
+                time.sleep(5)
+            
+            if self.shutdown_event.is_set():
+                return current_weights
+            
+            # Load aggregated weights
+            model.load_weights(aggregated_file)
+            current_weights = model.get_weights()
+            print(f"Node {node_id} loaded aggregated weights for round {round_num}")
+            
+            return current_weights
+            
+        except Exception as e:
+            self.record_error(f"Worker {node_id} error in round {message['round']}: {str(e)}")
+            return current_weights
 
     def aggregator_behavior(self, node_id: int, model, x, y, message, current_weights):
         """Behavior for aggregator node"""
-        round_num = message['round']
-        weights_map = message['weights']
-        
-        print(f"Node {node_id} acting as aggregator for round {round_num}")
-        
-        # Train locally first - CORRETTO: usa current_weights passata come parametro
-        model.set_weights(current_weights)
-        history = model.fit(x, y,
-                          epochs=self.aggregation_per_epoch,
-                          batch_size=self.config["hyperparameters"]["batch_size"],
-                          verbose=0)
-        
-        # Save local weights - CORRETTO: ora node_id è 0-based, ma nel filename usiamo 1-based
-        local_weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
-        model.save_weights(local_weight_file)
-        
-        # Evaluate and save local metrics
-        node_weight = self.calculate_node_weight(node_id)
-        metrics = self.evaluate_model(model)
-        self.save_metrics(f"node_{node_id+1}", node_weight, metrics)
-        
-        # Wait for enough nodes to complete - CORRETTO: ora node_id è 0-based, ma nel filename usiamo 1-based
-        completed_nodes = 0
-        while completed_nodes < self.min_responses:
+        try:
+            round_num = message['round']
+            weights_map = message['weights']
+            
+            print(f"Node {node_id} acting as aggregator for round {round_num}")
+            
+            # Check for shutdown
+            if self.shutdown_event.is_set():
+                return current_weights
+            
+            # Train locally first
+            model.set_weights(current_weights)
+            history = model.fit(x, y,
+                              epochs=self.aggregation_per_epoch,
+                              batch_size=self.config["hyperparameters"]["batch_size"],
+                              verbose=0)
+            
+            # Save local weights
+            local_weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
+            model.save_weights(local_weight_file)
+            
+            # Evaluate and save local metrics
+            node_weight = self.calculate_node_weight(node_id)
+            metrics = self.evaluate_model(model)
+            self.save_metrics(f"node_{node_id+1}", node_weight, metrics)
+            
+            # Wait for enough nodes to complete with timeout and shutdown checks
             completed_nodes = 0
-            for nid in range(self.num_nodes):
-                node_file = f"{self.weights_dir}/{self.experiment_name}_node{nid+1}.weights.h5"
-                if os.path.exists(node_file):
-                    completed_nodes += 1
-            time.sleep(2)
-        
-        print(f"Aggregator found {completed_nodes} completed nodes")
-        
-        # Perform weighted aggregation
-        aggregated_weights = self.aggregate_weights(round_num, weights_map)
-        
-        # Save aggregated weights
-        aggregated_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{round_num}.weights.h5"
-        model.set_weights(aggregated_weights)
-        model.save_weights(aggregated_file)
-        
-        # Evaluate aggregated model and save metrics
-        aggregated_metrics = self.evaluate_model(model)
-        self.save_metrics("swarm_aggregated", 1.0, aggregated_metrics)
-        
-        # Notify orchestrator
-        self.aggregator_queue.put({
-            'node': node_id,
-            'round': round_num,
-            'completed': True
-        })
-        
-        # Update current weights for next round
-        current_weights = aggregated_weights
-        print(f"Aggregator completed round {round_num}")
-        
-        return current_weights  # CORRETTO: restituisce i pesi aggiornati
+            wait_start = time.time()
+            while completed_nodes < self.min_responses and not self.shutdown_event.is_set():
+                if time.time() - wait_start > 300:  # 5min timeout
+                    self.record_error(f"Aggregator {node_id} timeout waiting for nodes in round {round_num}")
+                    break
+                    
+                completed_nodes = 0
+                for nid in range(self.num_nodes):
+                    node_file = f"{self.weights_dir}/{self.experiment_name}_node{nid+1}.weights.h5"
+                    if os.path.exists(node_file):
+                        completed_nodes += 1
+                time.sleep(2)
+            
+            if self.shutdown_event.is_set():
+                return current_weights
+            
+            print(f"Aggregator found {completed_nodes} completed nodes")
+            
+            # Perform weighted aggregation
+            aggregated_weights = self.aggregate_weights(round_num, weights_map)
+            
+            # Save aggregated weights
+            aggregated_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{round_num}.weights.h5"
+            model.set_weights(aggregated_weights)
+            model.save_weights(aggregated_file)
+            
+            # Evaluate aggregated model and save metrics
+            aggregated_metrics = self.evaluate_model(model)
+            self.save_metrics("swarm_aggregated", 1.0, aggregated_metrics)
+            
+            # Notify orchestrator
+            self.aggregator_queue.put({
+                'node': node_id,
+                'round': round_num,
+                'completed': True
+            })
+            
+            # Update current weights for next round
+            current_weights = aggregated_weights
+            print(f"Aggregator completed round {round_num}")
+            
+            return current_weights
+            
+        except Exception as e:
+            self.record_error(f"Aggregator {node_id} error in round {message['round']}: {str(e)}")
+            return current_weights
 
     def aggregate_weights(self, round_num: int, weights_map: Dict[int, float]):
         """Perform weighted averaging of weights"""
@@ -307,7 +393,6 @@ class SwarmLearner:
         node_weights = []
         
         for node_id, weight in weights_map.items():
-            # CORRETTO: ora node_id è 0-based, ma nel filename usiamo 1-based
             weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
             
             if os.path.exists(weight_file):
@@ -337,33 +422,80 @@ class SwarmLearner:
             except OSError as e:
                 print(f"Error removing file {file}: {e}")
 
+    def stop_threads(self):
+        """Stop all threads gracefully by setting shutdown event and clearing queues."""
+        print("Stopping all threads...")
+        self.shutdown_event.set()
+        
+        # Clear all queues to unblock threads
+        for q in self.node_queues:
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
+        
+        while not self.aggregator_queue.empty():
+            try:
+                self.aggregator_queue.get_nowait()
+            except queue.Empty:
+                break
+        
+        print("All threads have been signaled to stop.")
+
     def run(self):
         """Start the swarm learning process"""
         print(f"Starting Swarm Learning Experiment: {self.experiment_name}")
 
-        # Start orchestrator thread
-        orchestrator_thread = threading.Thread(target=self.orchestrator_process)
-        orchestrator_thread.daemon = True
-        orchestrator_thread.start()
-
-        # Start node threads - CORRETTO: ora node_id va da 0 a num_nodes-1
-        node_threads = []
-        for node_id in range(self.num_nodes):
-            thread = threading.Thread(target=self.node_process, args=(node_id,))
-            thread.daemon = True
-            thread.start()
-            node_threads.append(thread)
-
-        # Wait for completion
         try:
-            orchestrator_thread.join()
-            for thread in node_threads:
-                thread.join()
+            # Start orchestrator thread
+            orchestrator_thread = threading.Thread(target=self.orchestrator_process)
+            orchestrator_thread.daemon = True
+            orchestrator_thread.start()
+            self.active_threads.append(orchestrator_thread)
+
+            # Start node threads
+            node_threads = []
+            for node_id in range(self.num_nodes):
+                thread = threading.Thread(target=self.node_process, args=(node_id,))
+                thread.daemon = True
+                thread.start()
+                node_threads.append(thread)
+                self.active_threads.append(thread)
+
+            # Monitor for completion or errors
+            while (any(thread.is_alive() for thread in self.active_threads) and 
+                   not self.shutdown_event.is_set()):
+                time.sleep(1)
+                
+                # Check for errors
+                error_occurred, error_msg, error_tb = self.check_errors()
+                if error_occurred:
+                    print(f"Error detected: {error_msg}")
+                    break
+
+            # Wait a bit for threads to finish
+            time.sleep(2)
+            
         except KeyboardInterrupt:
             print("Experiment interrupted by user")
+        except Exception as e:
+            print(f"An error occurred in main thread: {e}")
+            traceback.print_exc()
         finally:
-            # Cleanup weight files
+            # Ensure cleanup happens regardless of errors
+            self.stop_threads()
             self.cleanup_weights()
+            
+            # Print error info if any
+            error_occurred, error_msg, error_tb = self.check_errors()
+            if error_occurred:
+                print(f"\n=== ERROR SUMMARY ===")
+                print(f"Error: {error_msg}")
+                if error_tb:
+                    print(f"Traceback: {error_tb}")
+            
+            print("Swarm learning process ended.")
 
 if __name__ == "__main__":
     import sys
