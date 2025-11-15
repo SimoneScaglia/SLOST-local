@@ -9,3 +9,5 @@ configs/
 *.log
 
 *.weights.h5
+
+*.png
