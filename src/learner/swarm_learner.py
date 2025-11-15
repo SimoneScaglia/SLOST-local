@@ -57,6 +57,7 @@ class SwarmLearner:
         # Queues for communication
         self.aggregator_queue = queue.Queue()
         self.node_queues = [queue.Queue() for _ in range(self.num_nodes)]
+        self.final_metrics_queue = queue.Queue()
         
         # State tracking
         self.current_round = 0
@@ -77,6 +78,7 @@ class SwarmLearner:
         # Track completion
         self.completed_rounds = 0
         self.rounds_lock = threading.Lock()
+        self.final_training_done = False
     
     def record_error(self, error_msg: str):
         """Record an error and signal shutdown"""
@@ -191,11 +193,14 @@ class SwarmLearner:
                 self.aggregator_node = self.current_round % self.num_nodes
                 print(f"Selected node {self.aggregator_node} as aggregator for round {self.current_round}")
                 
+                is_final_round = (self.current_round == self.num_aggregation_rounds - 1)
+                
                 # Notify aggregator
                 self.node_queues[self.aggregator_node].put({
                     'type': 'aggregator',
                     'round': self.current_round,
-                    'weights': self.node_weights
+                    'weights': self.node_weights,
+                    'final_round': is_final_round
                 })
                 
                 # Notify other nodes
@@ -204,7 +209,8 @@ class SwarmLearner:
                         self.node_queues[node_id].put({
                             'type': 'worker',
                             'round': self.current_round,
-                            'aggregator': self.aggregator_node
+                            'aggregator': self.aggregator_node,
+                            'final_round': is_final_round
                         })
                 
                 # Wait for aggregation completion with timeout
@@ -213,13 +219,28 @@ class SwarmLearner:
                     if aggregator_done['round'] == self.current_round:
                         print(f"Aggregation round {self.current_round} completed")
                         
-                        # Update completed rounds
-                        with self.rounds_lock:
-                            self.completed_rounds += 1
-                            
                         # Check if this is the final round
-                        if self.completed_rounds >= self.num_aggregation_rounds:
-                            print("All aggregation rounds completed. Signaling shutdown.")
+                        if is_final_round:
+                            print("Final aggregation round completed. Starting final evaluation.")
+                            # Signal all nodes to do final evaluation
+                            for node_id in range(self.num_nodes):
+                                self.node_queues[node_id].put({
+                                    'type': 'final_evaluation',
+                                    'round': self.current_round
+                                })
+                            
+                            # Wait for all nodes to complete final evaluation
+                            nodes_completed = 0
+                            while nodes_completed < self.num_nodes and not self.shutdown_event.is_set():
+                                try:
+                                    final_done = self.final_metrics_queue.get(timeout=60)
+                                    nodes_completed += 1
+                                    print(f"Node {final_done['node_id']} completed final evaluation ({nodes_completed}/{self.num_nodes})")
+                                except queue.Empty:
+                                    print("Timeout waiting for final evaluation")
+                                    break
+                            
+                            print("All nodes completed final evaluation. Signaling shutdown.")
                             self.shutdown_event.set()
                             break
                             
@@ -261,6 +282,9 @@ class SwarmLearner:
                         current_weights = self.aggregator_behavior(node_id, model, x, y, message, current_weights)
                     elif message['type'] == 'worker':
                         current_weights = self.worker_behavior(node_id, model, x, y, message, node_weight, current_weights)
+                    elif message['type'] == 'final_evaluation':
+                        self.final_evaluation_behavior(node_id, model, x, y, node_weight, message)
+                        break
                         
                 except queue.Empty:
                     # Check for shutdown and continue
@@ -279,6 +303,7 @@ class SwarmLearner:
         try:
             round_num = message['round']
             aggregator = message['aggregator']
+            is_final_round = message.get('final_round', False)
             
             print(f"Node {node_id} working on round {round_num}")
             
@@ -293,7 +318,13 @@ class SwarmLearner:
                               batch_size=self.config["hyperparameters"]["batch_size"],
                               verbose=0)
             
-            # Save weights
+            # For final round, save local weights but don't proceed to aggregation
+            if is_final_round:
+                print(f"Node {node_id} completed final local training in round {round_num}")
+                # Keep the locally trained weights for final evaluation
+                return model.get_weights()
+            
+            # Save weights for aggregation (non-final rounds)
             weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
             model.save_weights(weight_file)
             print(f"Node {node_id} saved weights for round {round_num}")
@@ -327,6 +358,7 @@ class SwarmLearner:
         try:
             round_num = message['round']
             weights_map = message['weights']
+            is_final_round = message.get('final_round', False)
             
             print(f"Node {node_id} acting as aggregator for round {round_num}")
             
@@ -341,7 +373,18 @@ class SwarmLearner:
                               batch_size=self.config["hyperparameters"]["batch_size"],
                               verbose=0)
             
-            # Save local weights
+            # For final round, don't aggregate - just keep local weights
+            if is_final_round:
+                print(f"Aggregator {node_id} completed final local training in round {round_num}")
+                # Notify orchestrator that final training is done
+                self.aggregator_queue.put({
+                    'node': node_id,
+                    'round': round_num,
+                    'completed': True
+                })
+                return model.get_weights()
+            
+            # Save local weights (non-final rounds)
             local_weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
             model.save_weights(local_weight_file)
             
@@ -390,6 +433,32 @@ class SwarmLearner:
             self.record_error(f"Aggregator {node_id} error in round {message['round']}: {str(e)}")
             return current_weights
 
+    def final_evaluation_behavior(self, node_id: int, model, x, y, node_weight: float, message):
+        """Final evaluation after last local training"""
+        try:
+            print(f"Node {node_id} performing final evaluation")
+            
+            # The model already has the weights from the final local training
+            # Evaluate and save metrics
+            metrics = self.evaluate_model(model)
+            self.save_metrics(f"node_{node_id+1}_final", node_weight, metrics)
+            print(f"Node {node_id} saved final metrics")
+            
+            # Notify orchestrator that final evaluation is complete
+            self.final_metrics_queue.put({
+                'node_id': node_id,
+                'round': message['round']
+            })
+            
+        except Exception as e:
+            self.record_error(f"Node {node_id} error in final evaluation: {str(e)}")
+            # Still notify orchestrator to avoid deadlock
+            self.final_metrics_queue.put({
+                'node_id': node_id,
+                'round': message['round'],
+                'error': str(e)
+            })
+
     def aggregate_weights(self, round_num: int, weights_map: Dict[int, float]):
         """Perform weighted averaging of weights"""
         all_weights = []
@@ -415,38 +484,6 @@ class SwarmLearner:
         
         return aggregated_weights
 
-    def save_final_metrics(self):
-        """Save final metrics for all nodes after training completes"""
-        if self.final_metrics_saved:
-            return
-            
-        print("Saving final metrics for all nodes...")
-        
-        try:
-            # Load the final aggregated model
-            final_round = self.num_aggregation_rounds - 1
-            final_weights_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{final_round}.weights.h5"
-            
-            if os.path.exists(final_weights_file):
-                final_model = self.create_model()
-                final_model.load_weights(final_weights_file)
-                
-                # Evaluate and save metrics for each node using the final model
-                for node_id in range(self.num_nodes):
-                    node_weight = self.calculate_node_weight(node_id)
-                    metrics = self.evaluate_model(final_model)
-                    self.save_metrics(f"node_{node_id+1}_final", node_weight, metrics)
-                    print(f"Saved final metrics for node {node_id+1}")
-                
-                self.final_metrics_saved = True
-                print("All final metrics saved successfully.")
-            else:
-                print(f"Final weights file not found: {final_weights_file}")
-                
-        except Exception as e:
-            print(f"Error saving final metrics: {e}")
-            traceback.print_exc()
-
     def cleanup_weights(self):
         """Remove all .h5 weights files after the process ends"""
         weight_files = glob.glob(f"{self.weights_dir}/*.h5")
@@ -456,6 +493,7 @@ class SwarmLearner:
                 print(f"Removed weight file: {file}")
             except OSError as e:
                 print(f"Error removing file {file}: {e}")
+        os.rmdir(self.weights_dir)
 
     def stop_threads(self):
         """Stop all threads gracefully by setting shutdown event and clearing queues."""
@@ -473,6 +511,12 @@ class SwarmLearner:
         while not self.aggregator_queue.empty():
             try:
                 self.aggregator_queue.get_nowait()
+            except queue.Empty:
+                break
+            
+        while not self.final_metrics_queue.empty():
+            try:
+                self.final_metrics_queue.get_nowait()
             except queue.Empty:
                 break
         
@@ -511,10 +555,6 @@ class SwarmLearner:
 
             # Wait a bit for threads to finish
             time.sleep(2)
-            
-            # Save final metrics if we completed successfully
-            if not self.error_occurred and self.completed_rounds >= self.num_aggregation_rounds:
-                self.save_final_metrics()
             
         except KeyboardInterrupt:
             print("Experiment interrupted by user")
