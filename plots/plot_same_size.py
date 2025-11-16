@@ -139,5 +139,5 @@ if __name__ == "__main__":
                 f"{out_dir}/results_auc_comparison_{config}nodes_{metric}.png",
                 True, False, config, metric,
                 0.8 if metric == 'auc' else 0.25,
-                0.9 if metric == 'auc' else (0.8 if config == 80 else 0.4)
+                0.9 if metric == 'auc' else 0.4
             )
