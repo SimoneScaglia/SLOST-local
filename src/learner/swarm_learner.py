@@ -17,6 +17,7 @@ import sys
 import glob
 import traceback
 import random
+import tempfile
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -87,6 +88,9 @@ class SwarmLearner:
         self.completed_rounds = 0
         self.rounds_lock = threading.Lock()
         self.final_training_done = False
+        
+        # Lock for synchronizing file access
+        self.file_lock = threading.Lock()
     
     def record_error(self, error_msg: str):
         """Record an error and signal shutdown"""
@@ -334,7 +338,11 @@ class SwarmLearner:
             
             # Save weights for aggregation (non-final rounds)
             weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
-            model.save_weights(weight_file)
+            with self.file_lock:  # Ensure only one thread writes to the file at a time
+                with tempfile.NamedTemporaryFile(delete=False, dir=self.weights_dir, suffix=".weights.h5") as temp_file:
+                    temp_file_name = temp_file.name
+                    model.save_weights(temp_file_name)
+                os.replace(temp_file_name, weight_file)  # Atomic rename to avoid conflicts
             print(f"Node {node_id} saved weights for round {round_num}")
             
             # Wait for aggregated weights with timeout and shutdown checks
@@ -394,7 +402,11 @@ class SwarmLearner:
             
             # Save local weights (non-final rounds)
             local_weight_file = f"{self.weights_dir}/{self.experiment_name}_node{node_id+1}.weights.h5"
-            model.save_weights(local_weight_file)
+            with self.file_lock:  # Ensure only one thread writes to the file at a time
+                with tempfile.NamedTemporaryFile(delete=False, dir=self.weights_dir, suffix=".weights.h5") as temp_file:
+                    temp_file_name = temp_file.name
+                    model.save_weights(temp_file_name)
+                os.replace(temp_file_name, local_weight_file)  # Atomic rename to avoid conflicts
             
             # Wait for enough nodes to complete with timeout and shutdown checks
             completed_nodes = 0
@@ -421,8 +433,12 @@ class SwarmLearner:
             
             # Save aggregated weights
             aggregated_file = f"{self.weights_dir}/{self.experiment_name}_swarm_round{round_num}.weights.h5"
-            model.set_weights(aggregated_weights)
-            model.save_weights(aggregated_file)
+            with self.file_lock:
+                with tempfile.NamedTemporaryFile(delete=False, dir=self.weights_dir, suffix=".weights.h5") as temp_file:
+                    temp_file_name = temp_file.name
+                    model.set_weights(aggregated_weights)
+                    model.save_weights(temp_file_name)
+                os.replace(temp_file_name, aggregated_file)  # Atomic rename to avoid conflicts
             
             # Notify orchestrator
             self.aggregator_queue.put({
