@@ -245,7 +245,7 @@ class SwarmLearner:
                             nodes_completed = 0
                             while nodes_completed < self.num_nodes and not self.shutdown_event.is_set():
                                 try:
-                                    final_done = self.final_metrics_queue.get(timeout=60)
+                                    final_done = self.final_metrics_queue.get(timeout=300)
                                     nodes_completed += 1
                                     print(f"Node {final_done['node_id']} completed final evaluation ({nodes_completed}/{self.num_nodes})")
                                 except queue.Empty:
