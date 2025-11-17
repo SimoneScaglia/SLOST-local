@@ -104,6 +104,7 @@ def main(results_dir, out_file, show_local, show_annotations, nodes, metric, met
     # limiti e ticks
     ax.set_xlim(x_min, x_max)
     ax.set_xticks(np.arange(x_min, x_max + 1, 1))
+    ax.set_xticklabels([str(x) for x in range(x_min, x_max + 1)], rotation=90)
     ax.set_xlabel("Numero di nodi")
     ax.set_ylim(metric_min, metric_max)
     ax.set_ylabel(metric)
