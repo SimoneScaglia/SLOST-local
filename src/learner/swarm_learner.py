@@ -40,7 +40,7 @@ class SwarmLearner:
         self.node_weights_config = self.config["node_weights"]
         
         # Load test data to get input_dim
-        self.test_data = self.load_test_data()
+        self.test_data = self.load_test_data(self.config.get("test_file"))
         self.input_dim = self.test_data[0].shape[1]
         
         # Import network dynamically
@@ -119,9 +119,10 @@ class SwarmLearner:
         with open(self.results_file, 'a') as f:
             f.write(f"{current_time},{user},{splits},{metrics['loss']},{metrics['auc']},{metrics['auprc']},{metrics['accuracy']},{metrics['precision']},{metrics['recall']},{self.iteration}\n")
     
-    def load_test_data(self):
+    def load_test_data(self, test_path: str = None):
         """Load test dataset"""
-        test_path = os.path.join(self.config["data_directory"], "test.csv")
+        if test_path is None:
+            test_path = os.path.join(self.config["data_directory"], "test.csv")
         test_data = pd.read_csv(test_path)
         
         # Assume last column is target
