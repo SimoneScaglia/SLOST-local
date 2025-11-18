@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
-import sys
 import gc
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import argparse
+import json
 
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.metrics import AUC, BinaryAccuracy, Precision, Recall
-
-os.chdir(Path(__file__).resolve().parent)
 
 # seeds
 np.random.seed(42)
@@ -148,10 +145,7 @@ def train_and_eval(x_nodes: int, iteration_y: int, epochs: int, batch_size: int,
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run global learner with configurable parameters.")
-    parser.add_argument("-n", "--nodes", type=int, required=True, help="Number of nodes.")
-    parser.add_argument("-e", "--epochs", type=int, required=True, help="Number of epochs.")
-    parser.add_argument("-b", "--batch_size", type=int, required=True, help="Batch size.")
-    parser.add_argument("-l", "--learning_rate", type=float, required=True, help="Learning rate.")
+    parser.add_argument("-c", "--config", type=str, required=True, help="Path to the configuration JSON file.")
     return parser.parse_args()
 
 # ==========================
@@ -160,36 +154,38 @@ def parse_args():
 def main():
     args = parse_args()
 
+    # Load configuration from JSON file
+    with open(args.config, "r") as f:
+        config = json.load(f)
+
     global NODES, DATA_DIR, TEST_FILE, EPOCHS, BATCH_SIZE, LEARNING_RATE
-    NODES = args.nodes
-    DATA_DIR = Path(f"../../datasets/{NODES}nodes")
-    TEST_FILE = Path(f"../../datasets/{NODES}nodes/test.csv")
-    EPOCHS = args.epochs
-    BATCH_SIZE = args.batch_size
-    LEARNING_RATE = args.learning_rate
+    NODES = config["num_nodes"]
+    DATA_DIR = Path(config["data_directory"])
+    TEST_FILE = Path(DATA_DIR) / "test.csv"
+    EPOCHS = 25
+    BATCH_SIZE = config["hyperparameters"]["batch_size"]
+    LEARNING_RATE = config["hyperparameters"]["learning_rate"]
 
-    for x in range(2, NODES + 1):
-        out_dir = Path(f"../../results/{NODES}nodes_results/1host_{x}nodes/central_results")
-        ensure_dir(out_dir)
-        out_file = out_dir / "central_results.csv"
+    out_dir = Path(config["results_directory"])
+    ensure_dir(out_dir)
+    out_file = out_dir / "central_results.csv"
 
-        for y in range(10):
-            results = train_and_eval(x_nodes=x, iteration_y=y, epochs=EPOCHS, batch_size=BATCH_SIZE)
+    results = train_and_eval(x_nodes=config["num_nodes"], iteration_y=config["iteration"], epochs=EPOCHS, batch_size=BATCH_SIZE)
 
-            row = {
-                "datetime": current_datetime_rome_iso(),
-                "user": OUTPUT_USER,
-                "splits": OUTPUT_SPLITS,
-                'loss': results['loss'],
-                'auc': results['auc'],
-                'auprc': results['auprc'],
-                'accuracy': results['accuracy'],
-                'precision': results['precision'],
-                'recall': results['recall'],
-                "iteration": y
-            }
-            append_result_csv(out_file, row)
-            print(f"Salvato risultato in {out_file}")
+    row = {
+        "datetime": current_datetime_rome_iso(),
+        "user": OUTPUT_USER,
+        "splits": OUTPUT_SPLITS,
+        'loss': results['loss'],
+        'auc': results['auc'],
+        'auprc': results['auprc'],
+        'accuracy': results['accuracy'],
+        'precision': results['precision'],
+        'recall': results['recall'],
+        "iteration": config["iteration"]
+    }
+    append_result_csv(out_file, row)
+    print(f"Salvato risultato in {out_file}")
 
 
 if __name__ == "__main__":
