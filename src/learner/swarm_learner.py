@@ -25,6 +25,8 @@ os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 os.environ['TF_DETERMINISTIC_OPS'] = '1'  # CRITICAL: Ensure deterministic operations
 os.environ['PYTHONHASHSEED'] = str(42)
 
+tf.config.experimental.enable_op_determinism()
+
 class SwarmLearner:
     def __init__(self, config_path: str):
         with open(config_path, 'r') as f:
