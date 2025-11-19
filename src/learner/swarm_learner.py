@@ -358,6 +358,7 @@ class SwarmLearner:
             
             # Load aggregated weights
             model.load_weights(aggregated_file)
+            model.optimizer = tf.keras.optimizers.Adam(learning_rate=self.config["hyperparameters"]["learning_rate"])
             current_weights = model.get_weights()
             print(f"Node {node_id} loaded aggregated weights for round {round_num}")
             
