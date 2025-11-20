@@ -72,7 +72,7 @@ def build_directories(base_dir, learning_rates, batch_sizes):
 
     return directories
 
-def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, metric='auc'):
+def create_comparison_heatmap(swarm_res_dir, rows_per_node, metric='auc'):
     """
     Create a comparison heatmap showing swarm vs central results and their difference
     
@@ -89,7 +89,7 @@ def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, met
     
     # Build full paths
     swarm_dirs = [os.path.join(swarm_res_dir, d) for d in directories]
-    central_dirs = [os.path.join(central_res_dir, d) for d in directories]
+    central_dirs = [os.path.join(swarm_res_dir, d) for d in directories]
     
     # Load results
     swarm_auc, swarm_loss = load_results(swarm_dirs, 'swarm_results.csv', learning_rates, batch_sizes)
@@ -177,12 +177,12 @@ def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, met
     
     print(f"Comparison heatmap saved: {filename}")
 
-def try_plot_comparison(swarm_res_dir, central_res_dir, rows_per_node):
+def try_plot_comparison(swarm_res_dir, rows_per_node):
     """Wrapper function with error handling"""
     try:
         print(f"Processing comparison for {rows_per_node} rows/node...")
-        create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, metric='auc')
-        create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, metric='loss')
+        create_comparison_heatmap(swarm_res_dir, rows_per_node, metric='auc')
+        create_comparison_heatmap(swarm_res_dir, rows_per_node, metric='loss')
     except Exception as e:
         print(f"An error occurred while plotting comparison for {rows_per_node} rows/node: {e}")
 
@@ -191,20 +191,17 @@ if __name__ == "__main__":
     comparisons = [
         {
             'swarm': '../results/heatmap_experiments_1000rows_5nodes',
-            'central': '../results/heatmap_experiments_central_1000rows_5nodes',
             'rows': 1000
         },
         {
             'swarm': '../results/heatmap_experiments_2000rows_5nodes', 
-            'central': '../results/heatmap_experiments_central_2000rows_5nodes',
             'rows': 2000
         },
         {
             'swarm': '../results/heatmap_experiments_4000rows_5nodes',
-            'central': '../results/heatmap_experiments_central_4000rows_5nodes', 
             'rows': 4000
         }
     ]
     
     for comp in comparisons:
-        try_plot_comparison(comp['swarm'], comp['central'], comp['rows'])
+        try_plot_comparison(comp['swarm'], comp['rows'])

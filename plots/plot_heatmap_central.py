@@ -131,6 +131,6 @@ def try_plot_heatmap_central(res_dir, rows):
         print(f"An error occurred while plotting heatmap for {rows} rows/node: {e}")
 
 if __name__ == "__main__":
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_central_1000rows_5nodes', rows = 5000)
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_central_2000rows_5nodes', rows = 10000)
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_central_4000rows_5nodes', rows = 20000)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_1000rows_5nodes', rows = 5000)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_2000rows_5nodes', rows = 10000)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_4000rows_5nodes', rows = 20000)
