@@ -1,6 +1,8 @@
 import os
 import json
 
+NODES = 40
+
 def create_config_files(base_dir, learning_rates, batch_sizes, iterations=5):
     # Base configuration template
     base_config = {
@@ -21,7 +23,7 @@ def create_config_files(base_dir, learning_rates, batch_sizes, iterations=5):
             "learning_rate": 0.0,
             "batch_size": 0
         },
-        "data_directory": "datasets/40nodes/",
+        "data_directory": f"datasets/{NODES}nodes/",
         "results_directory": "",
         "iteration": 0
     }
@@ -35,14 +37,14 @@ def create_config_files(base_dir, learning_rates, batch_sizes, iterations=5):
             for iteration in range(iterations):
                 # Update the configuration
                 config = base_config.copy()
-                config["experiment_name"] = f"5_{iteration}_lr{lr:.4f}_bs{bs}"
+                config["experiment_name"] = f"5_{iteration}_lr{lr:.5f}_bs{bs}"
                 config["hyperparameters"]["learning_rate"] = lr
                 config["hyperparameters"]["batch_size"] = bs
-                config["results_directory"] = f"results/heatmap_experiments/5_0_lr{lr:.4f}_bs{bs}/"
+                config["results_directory"] = f"results/heatmap_experiments_{int(40000/NODES)}rows_5nodes/5_0_lr{lr:.5f}_bs{bs}/"
                 config["iteration"] = iteration
 
                 # File name
-                file_name = f"5_{iteration}_lr{lr:.4f}_bs{bs}.json".replace("0.", "0-")
+                file_name = f"5_{iteration}_lr{lr:.5f}_bs{bs}.json".replace("0.", "0-")
                 file_path = os.path.join(base_dir, file_name)
 
                 # Write to file
@@ -52,6 +54,6 @@ def create_config_files(base_dir, learning_rates, batch_sizes, iterations=5):
 
 if __name__ == "__main__":
     base_directory = "../configs"
-    learning_rates = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075]
-    batch_sizes = [32, 64, 128]
+    learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
+    batch_sizes = [8, 16, 32, 64, 128, 256, 512]
     create_config_files(base_directory, learning_rates, batch_sizes, 5)
