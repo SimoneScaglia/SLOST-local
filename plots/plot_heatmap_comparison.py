@@ -21,40 +21,56 @@ def parse_bs_from_dir(dir_path):
     bs_part = dir_name.split('bs')[-1]
     return int(bs_part)
 
-def load_results(directories, csv_filename):
+def load_results(directories, csv_filename, learning_rates=None, batch_sizes=None):
     """Load results from directories with given CSV filename"""
-    auc_results = {}
-    loss_results = {}
+    auc_results = {bs: {lr: 0 for lr in learning_rates} for bs in batch_sizes}
+    loss_results = {bs: {lr: 0 for lr in learning_rates} for bs in batch_sizes}
     
     for directory in directories:
         csv_path = os.path.join(directory, csv_filename)
         
         if os.path.exists(csv_path):
             try:
-                # Read the CSV file
                 df = pd.read_csv(csv_path)
-                
-                # Extract parameters from directory name
+
+                # Extract parameters
                 lr = parse_lr_from_dir(directory)
                 bs = parse_bs_from_dir(directory)
-                
-                # Calculate mean values
-                mean_auc = df['auc'].mean()
-                mean_loss = df['loss'].mean()
-                
-                # Store results
-                if bs not in auc_results:
-                    auc_results[bs] = {}
-                    loss_results[bs] = {}
-                
-                auc_results[bs][lr] = mean_auc
-                loss_results[bs][lr] = mean_loss
+
+                if bs in auc_results and lr in auc_results[bs]:
+                    auc_results[bs][lr] = df["auc"].mean()
+                    loss_results[bs][lr] = df["loss"].mean()
+
             except Exception as e:
                 print(f"Error processing {directory}: {e}")
         else:
             print(f"File not found: {csv_path}")
-    
+
     return auc_results, loss_results
+
+def build_directories(base_dir, learning_rates, batch_sizes):
+    directories = []
+
+    for lr in learning_rates:
+        lr_str_5 = f"{lr:.5f}"
+
+        for bs in batch_sizes:
+            dir_5 = f"5_0_lr{lr_str_5}_bs{bs}"
+            full_5 = os.path.join(base_dir, dir_5)
+
+            if os.path.exists(full_5):
+                directories.append(dir_5)
+                continue
+
+            lr_str_4 = f"{lr:.4f}"
+            dir_4 = f"5_0_lr{lr_str_4}_bs{bs}"
+            full_4 = os.path.join(base_dir, dir_4)
+
+            if os.path.exists(full_4):
+                directories.append(dir_4)
+                continue
+
+    return directories
 
 def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, metric='auc'):
     """
@@ -67,52 +83,27 @@ def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, met
     - metric: 'auc' or 'loss'
     """
     
-    # Define the directories structure (same for both)
-    directories = [
-        f"5_0_lr0.0010_bs32",
-        f"5_0_lr0.0010_bs64",
-        f"5_0_lr0.0010_bs128",
-        f"5_0_lr0.0025_bs32",
-        f"5_0_lr0.0025_bs64",
-        f"5_0_lr0.0025_bs128",
-        f"5_0_lr0.0050_bs32",
-        f"5_0_lr0.0050_bs64",
-        f"5_0_lr0.0050_bs128",
-        f"5_0_lr0.0100_bs32",
-        f"5_0_lr0.0100_bs64",
-        f"5_0_lr0.0100_bs128",
-        f"5_0_lr0.0250_bs32",
-        f"5_0_lr0.0250_bs64",
-        f"5_0_lr0.0250_bs128",
-        f"5_0_lr0.0500_bs32",
-        f"5_0_lr0.0500_bs64",
-        f"5_0_lr0.0500_bs128",
-        f"5_0_lr0.0750_bs32",
-        f"5_0_lr0.0750_bs64",
-        f"5_0_lr0.0750_bs128"
-    ]
+    learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
+    batch_sizes = [8, 16, 32, 64, 128, 256, 512]
+    directories = build_directories(swarm_res_dir, learning_rates, batch_sizes)
     
     # Build full paths
     swarm_dirs = [os.path.join(swarm_res_dir, d) for d in directories]
     central_dirs = [os.path.join(central_res_dir, d) for d in directories]
     
     # Load results
-    swarm_auc, swarm_loss = load_results(swarm_dirs, 'swarm_results.csv')
-    central_auc, central_loss = load_results(central_dirs, 'central_results.csv')
+    swarm_auc, swarm_loss = load_results(swarm_dirs, 'swarm_results.csv', learning_rates, batch_sizes)
+    central_auc, central_loss = load_results(central_dirs, 'central_results.csv', learning_rates, batch_sizes)
     
     # Select metric
     if metric == 'auc':
         swarm_matrix = swarm_auc
         central_matrix = central_auc
         metric_title = 'AUC'
-        # For AUC, higher is better, so difference = swarm - central
-        # Positive difference means swarm performs better
-    else:  # loss
+    else:
         swarm_matrix = swarm_loss
         central_matrix = central_loss
         metric_title = 'Loss'
-        # For loss, lower is better, so difference = central - swarm
-        # Positive difference means swarm performs better (lower loss)
     
     # Create matrices
     batch_sizes = sorted(list(swarm_matrix.keys()))
@@ -141,7 +132,7 @@ def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, met
     os.makedirs(out_dir, exist_ok=True)
     
     # Create the comparison heatmap
-    plt.figure(figsize=(16, 12))
+    plt.figure(figsize=(28, 14))
     
     # Create annotated matrix for cell text
     annotation_matrix = np.empty_like(difference, dtype=object)
@@ -155,17 +146,19 @@ def create_comparison_heatmap(swarm_res_dir, central_res_dir, rows_per_node, met
     
     # Plot heatmap
     heatmap = sns.heatmap(difference,
-                        xticklabels=[f"{lr:.4f}" for lr in learning_rates],
+                        xticklabels=[f"{lr:.5f}" for lr in learning_rates],
                         yticklabels=batch_sizes,
                         annot=annotation_matrix,
-                        fmt='',
+                        fmt="",
                         cmap=cmap,
                         cbar_kws={'label': diff_label},
                         linewidths=0.5,
                         linecolor='white',
-                        annot_kws={'size': 16, 'weight': 'normal', 'color': 'black'},
+                        annot_kws={'size': 18, 'weight': 'normal', 'color': 'black'},
                         vmin=-0.05 if metric == 'auc' else -0.05,
                         vmax=0.05 if metric == 'auc' else 0.05)
+    heatmap.set_xticklabels(heatmap.get_xticklabels(), fontsize=18)
+    heatmap.set_yticklabels(heatmap.get_yticklabels(), fontsize=18)
     
     plt.title(f'{metric_title} Comparison: Swarm vs Central\n'
             f'Swarm: 5 nodes × {rows_per_node} rows/node = {5*rows_per_node} total rows\n'

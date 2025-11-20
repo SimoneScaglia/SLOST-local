@@ -7,39 +7,41 @@ from pathlib import Path
 
 os.chdir(Path(__file__).resolve().parent)
 
+def build_directories(base_dir, learning_rates, batch_sizes):
+    directories = []
+
+    for lr in learning_rates:
+        lr_str_5 = f"{lr:.5f}"
+
+        for bs in batch_sizes:
+            dir_5 = f"5_0_lr{lr_str_5}_bs{bs}"
+            full_5 = os.path.join(base_dir, dir_5)
+
+            if os.path.exists(full_5):
+                directories.append(full_5)
+                continue
+
+            lr_str_4 = f"{lr:.4f}"
+            dir_4 = f"5_0_lr{lr_str_4}_bs{bs}"
+            full_4 = os.path.join(base_dir, dir_4)
+
+            if os.path.exists(full_4):
+                directories.append(full_4)
+                continue
+
+    return directories
+
 def plot_heatmap_central(res_dir, rows):
     # Define the directories
-    directories = [
-        f"{res_dir}/5_0_lr0.0010_bs32",
-        f"{res_dir}/5_0_lr0.0010_bs64",
-        f"{res_dir}/5_0_lr0.0010_bs128",
-        f"{res_dir}/5_0_lr0.0025_bs32",
-        f"{res_dir}/5_0_lr0.0025_bs64",
-        f"{res_dir}/5_0_lr0.0025_bs128",
-        f"{res_dir}/5_0_lr0.0050_bs32",
-        f"{res_dir}/5_0_lr0.0050_bs64",
-        f"{res_dir}/5_0_lr0.0050_bs128",
-        f"{res_dir}/5_0_lr0.0100_bs32",
-        f"{res_dir}/5_0_lr0.0100_bs64",
-        f"{res_dir}/5_0_lr0.0100_bs128",
-        f"{res_dir}/5_0_lr0.0250_bs32",
-        f"{res_dir}/5_0_lr0.0250_bs64",
-        f"{res_dir}/5_0_lr0.0250_bs128",
-        f"{res_dir}/5_0_lr0.0500_bs32",
-        f"{res_dir}/5_0_lr0.0500_bs64",
-        f"{res_dir}/5_0_lr0.0500_bs128",
-        f"{res_dir}/5_0_lr0.0750_bs32",
-        f"{res_dir}/5_0_lr0.0750_bs64",
-        f"{res_dir}/5_0_lr0.0750_bs128"
-    ]
+    learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
+    batch_sizes = [8, 16, 32, 64, 128, 256, 512]
+    directories = build_directories(res_dir, learning_rates, batch_sizes)
 
     def parse_lr_from_dir(dir_path):
         """Extract learning rate from directory name"""
         dir_name = os.path.basename(dir_path)
         lr_part = dir_name.split('lr')[-1].split('_')[0]
-        # Convert string like '0-0010' to float 0.001
-        lr_str = lr_part.replace('-', '.')
-        return float(lr_str)
+        return float(lr_part)
 
     def parse_bs_from_dir(dir_path):
         """Extract batch size from directory name"""
@@ -48,8 +50,8 @@ def plot_heatmap_central(res_dir, rows):
         return int(bs_part)
 
     # Initialize dictionaries to store results
-    auc_results = {}
-    loss_results = {}
+    auc_results = {bs: {lr: 0 for lr in learning_rates} for bs in batch_sizes}
+    loss_results = {bs: {lr: 0 for lr in learning_rates} for bs in batch_sizes}
 
     # Process each directory
     for directory in directories:
@@ -59,22 +61,13 @@ def plot_heatmap_central(res_dir, rows):
             try:
                 # Read the CSV file
                 df = pd.read_csv(csv_path)
-                
                 # Extract parameters from directory name
                 lr = parse_lr_from_dir(directory)
                 bs = parse_bs_from_dir(directory)
-                
-                # Calculate mean values
-                mean_auc = df['auc'].mean()
-                mean_loss = df['loss'].mean()
-                
                 # Store results
-                if bs not in auc_results:
-                    auc_results[bs] = {}
-                    loss_results[bs] = {}
-                
-                auc_results[bs][lr] = mean_auc
-                loss_results[bs][lr] = mean_loss
+                if bs in auc_results and lr in auc_results[bs]:
+                    auc_results[bs][lr] = df['auc'].mean()
+                    loss_results[bs][lr] = df['loss'].mean()
             except Exception as e:
                 print(f"Error processing {directory}: {e}")
         else:
@@ -96,14 +89,17 @@ def plot_heatmap_central(res_dir, rows):
     os.makedirs(out_dir, exist_ok=True)
 
     # Create AUC heatmap
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(auc_matrix, 
-                xticklabels=[f"{lr:.4f}" for lr in learning_rates],
+    plt.figure(figsize=(28, 14))
+    heatmap = sns.heatmap(auc_matrix, 
+                xticklabels=[f"{lr:.5f}" for lr in learning_rates],
                 yticklabels=batch_sizes,
                 annot=True, 
-                fmt=".4f",
+                annot_kws={'size': 20, 'weight': 'normal'},
+                fmt=".5f",
                 cmap="RdYlGn",
                 cbar_kws={'label': 'AUC'})
+    heatmap.set_xticklabels(heatmap.get_xticklabels(), fontsize=18)
+    heatmap.set_yticklabels(heatmap.get_yticklabels(), fontsize=18)
     plt.title(f'AUC Heatmap: Centralized-Node ({rows} rows)')
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
@@ -111,31 +107,22 @@ def plot_heatmap_central(res_dir, rows):
     plt.savefig(f'plots_results/plot_heatmap_central/auc_heatmap_{rows}.png', dpi=300, bbox_inches='tight')
 
     # Create Loss heatmap
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(loss_matrix, 
-                xticklabels=[f"{lr:.4f}" for lr in learning_rates],
+    plt.figure(figsize=(28, 14))
+    heatmap = sns.heatmap(loss_matrix, 
+                xticklabels=[f"{lr:.5f}" for lr in learning_rates],
                 yticklabels=batch_sizes,
                 annot=True, 
-                fmt=".4f",
+                annot_kws={'size': 20, 'weight': 'normal'},
+                fmt=".5f",
                 cmap="RdYlGn_r",  # Reversed colormap for loss (red = bad/high loss)
                 cbar_kws={'label': 'Loss'})
+    heatmap.set_xticklabels(heatmap.get_xticklabels(), fontsize=18)
+    heatmap.set_yticklabels(heatmap.get_yticklabels(), fontsize=18)
     plt.title(f'Loss Heatmap: Centralized-Node ({rows} rows)')
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
     plt.tight_layout()
     plt.savefig(f'plots_results/plot_heatmap_central/loss_heatmap_{rows}.png', dpi=300, bbox_inches='tight')
-
-    # Print summary statistics
-    print("\nSummary Statistics:")
-    print(f"AUC Range: {auc_matrix.min():.4f} - {auc_matrix.max():.4f}")
-    print(f"Loss Range: {loss_matrix.min():.4f} - {loss_matrix.max():.4f}")
-
-    # Find best configurations
-    best_auc_idx = np.unravel_index(np.argmax(auc_matrix), auc_matrix.shape)
-    best_loss_idx = np.unravel_index(np.argmin(loss_matrix), loss_matrix.shape)
-
-    print(f"\nBest AUC: {auc_matrix[best_auc_idx]:.4f} at BS={batch_sizes[best_auc_idx[0]]}, LR={learning_rates[best_auc_idx[1]]:.4f}")
-    print(f"Best Loss: {loss_matrix[best_loss_idx]:.4f} at BS={batch_sizes[best_loss_idx[0]]}, LR={learning_rates[best_loss_idx[1]]:.4f}")
 
 def try_plot_heatmap_central(res_dir, rows):
     try:
