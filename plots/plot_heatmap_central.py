@@ -7,14 +7,14 @@ from pathlib import Path
 
 os.chdir(Path(__file__).resolve().parent)
 
-def build_directories(base_dir, learning_rates, batch_sizes):
+def build_directories(base_dir, learning_rates, batch_sizes, nodes):
     directories = []
 
     for lr in learning_rates:
         lr_str_5 = f"{lr:.5f}"
 
         for bs in batch_sizes:
-            dir_5 = f"5_0_lr{lr_str_5}_bs{bs}"
+            dir_5 = f"{nodes}_0_lr{lr_str_5}_bs{bs}"
             full_5 = os.path.join(base_dir, dir_5)
 
             if os.path.exists(full_5):
@@ -22,7 +22,7 @@ def build_directories(base_dir, learning_rates, batch_sizes):
                 continue
 
             lr_str_4 = f"{lr:.4f}"
-            dir_4 = f"5_0_lr{lr_str_4}_bs{bs}"
+            dir_4 = f"{nodes}_0_lr{lr_str_4}_bs{bs}"
             full_4 = os.path.join(base_dir, dir_4)
 
             if os.path.exists(full_4):
@@ -31,11 +31,11 @@ def build_directories(base_dir, learning_rates, batch_sizes):
 
     return directories
 
-def plot_heatmap_central(res_dir, rows):
+def plot_heatmap_central(res_dir, rows, nodes):
     # Define the directories
     learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
     batch_sizes = [8, 16, 32, 64, 128, 256, 512]
-    directories = build_directories(res_dir, learning_rates, batch_sizes)
+    directories = build_directories(res_dir, learning_rates, batch_sizes, nodes)
 
     def parse_lr_from_dir(dir_path):
         """Extract learning rate from directory name"""
@@ -104,7 +104,7 @@ def plot_heatmap_central(res_dir, rows):
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
     plt.tight_layout()
-    plt.savefig(f'plots_results/plot_heatmap_central/auc_heatmap_{rows}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots_results/plot_heatmap_central/auc_heatmap_{nodes}_{rows}.png', dpi=300, bbox_inches='tight')
 
     # Create Loss heatmap
     plt.figure(figsize=(28, 14))
@@ -122,15 +122,19 @@ def plot_heatmap_central(res_dir, rows):
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
     plt.tight_layout()
-    plt.savefig(f'plots_results/plot_heatmap_central/loss_heatmap_{rows}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots_results/plot_heatmap_central/loss_heatmap_{nodes}_{rows}.png', dpi=300, bbox_inches='tight')
 
-def try_plot_heatmap_central(res_dir, rows):
+def try_plot_heatmap_central(res_dir, rows, nodes):
     try:
-        plot_heatmap_central(res_dir, rows)
+        plot_heatmap_central(res_dir, rows, nodes)
     except Exception as e:
         print(f"An error occurred while plotting heatmap for {rows} rows/node: {e}")
 
 if __name__ == "__main__":
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_1000rows_5nodes', rows = 5000)
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_2000rows_5nodes', rows = 10000)
-    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_4000rows_5nodes', rows = 20000)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_1000rows_5nodes', rows = 5000, nodes = 5)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_2000rows_5nodes', rows = 10000, nodes = 5)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_4000rows_5nodes', rows = 20000, nodes = 5)
+
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_1000rows_2nodes', rows = 2000, nodes = 2)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_2000rows_2nodes', rows = 4000, nodes = 2)
+    try_plot_heatmap_central(res_dir = '../results/heatmap_experiments_4000rows_2nodes', rows = 8000, nodes = 2)

@@ -7,14 +7,14 @@ from pathlib import Path
 
 os.chdir(Path(__file__).resolve().parent)
 
-def build_directories(base_dir, learning_rates, batch_sizes):
+def build_directories(base_dir, learning_rates, batch_sizes, nodes):
     directories = []
 
     for lr in learning_rates:
         lr_str_5 = f"{lr:.5f}"
 
         for bs in batch_sizes:
-            dir_5 = f"5_0_lr{lr_str_5}_bs{bs}"
+            dir_5 = f"{nodes}_0_lr{lr_str_5}_bs{bs}"
             full_5 = os.path.join(base_dir, dir_5)
 
             if os.path.exists(full_5):
@@ -22,7 +22,7 @@ def build_directories(base_dir, learning_rates, batch_sizes):
                 continue
 
             lr_str_4 = f"{lr:.4f}"
-            dir_4 = f"5_0_lr{lr_str_4}_bs{bs}"
+            dir_4 = f"{nodes}_0_lr{lr_str_4}_bs{bs}"
             full_4 = os.path.join(base_dir, dir_4)
 
             if os.path.exists(full_4):
@@ -31,11 +31,11 @@ def build_directories(base_dir, learning_rates, batch_sizes):
 
     return directories
 
-def plot_heatmap_swarm(res_dir, rows_per_node):
+def plot_heatmap_swarm(res_dir, rows_per_node, nodes):
     # Define the directories
     learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
     batch_sizes = [8, 16, 32, 64, 128, 256, 512]
-    directories = build_directories(res_dir, learning_rates, batch_sizes)
+    directories = build_directories(res_dir, learning_rates, batch_sizes, nodes)
 
     def parse_lr_from_dir(dir_path):
         """Extract learning rate from directory name"""
@@ -100,11 +100,11 @@ def plot_heatmap_swarm(res_dir, rows_per_node):
                 cbar_kws={'label': 'AUC'})
     heatmap.set_xticklabels(heatmap.get_xticklabels(), fontsize=18)
     heatmap.set_yticklabels(heatmap.get_yticklabels(), fontsize=18)
-    plt.title(f'AUC Heatmap: 5-Node SL Network ({rows_per_node} rows/node)')
+    plt.title(f'AUC Heatmap: {nodes}-Node SL Network ({rows_per_node} rows/node)')
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
     plt.tight_layout()
-    plt.savefig(f'plots_results/plot_heatmap_swarm/auc_heatmap_{rows_per_node}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots_results/plot_heatmap_swarm/auc_heatmap_{nodes}_{rows_per_node}.png', dpi=300, bbox_inches='tight')
 
     # Create Loss heatmap
     plt.figure(figsize=(28, 14))
@@ -118,19 +118,23 @@ def plot_heatmap_swarm(res_dir, rows_per_node):
                 cbar_kws={'label': 'Loss'})
     heatmap.set_xticklabels(heatmap.get_xticklabels(), fontsize=18)
     heatmap.set_yticklabels(heatmap.get_yticklabels(), fontsize=18)
-    plt.title(f'Loss Heatmap: 5-Node SL Network ({rows_per_node} rows/node)')
+    plt.title(f'Loss Heatmap: {nodes}-Node SL Network ({rows_per_node} rows/node)')
     plt.xlabel('Learning Rate')
     plt.ylabel('Batch Size')
     plt.tight_layout()
-    plt.savefig(f'plots_results/plot_heatmap_swarm/loss_heatmap_{rows_per_node}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'plots_results/plot_heatmap_swarm/loss_heatmap_{nodes}_{rows_per_node}.png', dpi=300, bbox_inches='tight')
 
-def try_plot_heatmap_swarm(res_dir, rows_per_node):
+def try_plot_heatmap_swarm(res_dir, rows_per_node, nodes):
     try:
-        plot_heatmap_swarm(res_dir, rows_per_node)
+        plot_heatmap_swarm(res_dir, rows_per_node, nodes)
     except Exception as e:
         print(f"An error occurred while plotting heatmap for {rows_per_node} rows/node: {e}")
 
 if __name__ == "__main__":
-    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_1000rows_5nodes', rows_per_node = 1000)
-    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_2000rows_5nodes', rows_per_node = 2000)
-    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_4000rows_5nodes', rows_per_node = 4000)
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_1000rows_5nodes', rows_per_node = 1000, nodes = 5)
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_2000rows_5nodes', rows_per_node = 2000, nodes = 5)
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_4000rows_5nodes', rows_per_node = 4000, nodes = 5)
+
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_1000rows_2nodes', rows_per_node = 1000, nodes = 2)
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_2000rows_2nodes', rows_per_node = 2000, nodes = 2)
+    try_plot_heatmap_swarm(res_dir = '../results/heatmap_experiments_4000rows_2nodes', rows_per_node = 4000, nodes = 2)
