@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import matplotlib.colors as mcolors
 
 os.chdir(Path(__file__).resolve().parent)
 
@@ -72,7 +73,7 @@ def build_directories(base_dir, learning_rates, batch_sizes, nodes):
 
     return directories
 
-def create_comparison_heatmap(comparison, metric='auc'):
+def create_comparison_heatmap(comparison, metric='auc', discrete=False):
     learning_rates = [0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1]
     batch_sizes = [8, 16, 32, 64, 128, 256, 512]
     
@@ -122,6 +123,12 @@ def create_comparison_heatmap(comparison, metric='auc'):
             diff_val = difference[i, j]
             
             annotation_matrix[i, j] = f"A:{conf1_val:.4f}\nB:{conf2_val:.4f}\nΔ:{diff_val:+.4f}"
+
+    if discrete:
+        bounds = [-1, -0.05, -0.005, 0.005, 0.05, 1]  # 5 scaglioni
+        colors = ["#8b0000", "#ff4500", "#ffff66", "#66ff66", "#006400"]
+        cmap = mcolors.ListedColormap(colors)
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
     
     # Plot heatmap
     heatmap = sns.heatmap(difference,
@@ -130,6 +137,7 @@ def create_comparison_heatmap(comparison, metric='auc'):
                         annot=annotation_matrix,
                         fmt="",
                         cmap=cmap,
+                        norm=norm if discrete else None,
                         linewidths=0.5,
                         linecolor='white',
                         annot_kws={'size': 18, 'weight': 'normal', 'color': 'black'},
@@ -154,63 +162,108 @@ def create_comparison_heatmap(comparison, metric='auc'):
     
     print(f"Comparison heatmap saved: {filename}")
 
-def try_plot_comparison(comparison):
+def try_plot_comparison(comparison, discrete):
     """Wrapper function with error handling"""
     try:
-        create_comparison_heatmap(comparison, metric='auc')
-        # create_comparison_heatmap(swarm_res_dir, rows_per_node, metric='loss')
+        create_comparison_heatmap(comparison, metric='auc', discrete=discrete)
+        # create_comparison_heatmap(swarm_res_dir, rows_per_node, metric='loss', discrete=discrete)
     except Exception as e:
         print(f"An error occurred while plotting comparison for {comparison['exp']} rows/node: {e}")
 
 if __name__ == "__main__":
     # Define the mapping between swarm and central directories
     comparisons = [
+        # {
+        #     'exp': 'A = Swarm 5nodes (1000 rows/node) vs B = Centralized (5000 rows)',
+        #     'dir1': '../results/heatmap_experiments_1000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_1000rows_5nodes',
+        #     'file2': 'central_results.csv',
+        #     'node2': 5
+        # },
+        # {
+        #     'exp': 'A = Swarm 5 nodes (2000 rows/node) vs B = Centralized (10000 rows)',
+        #     'dir1': '../results/heatmap_experiments_2000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_2000rows_5nodes',
+        #     'file2': 'central_results.csv',
+        #     'node2': 5
+        # },
+        # {
+        #     'exp': 'A = Swarm 5 nodes (4000 rows/node) vs B = Centralized (20000 rows)',
+        #     'dir1': '../results/heatmap_experiments_4000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_4000rows_5nodes',
+        #     'file2': 'central_results.csv',
+        #     'node2': 5
+        # },
+        # {
+        #     'exp': 'A = Swarm 5 nodes (1000 rows/node) vs B = Swarm 2 nodes (1000 rows/node)',
+        #     'dir1': '../results/heatmap_experiments_1000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_1000rows_2nodes',
+        #     'file2': 'swarm_results.csv',
+        #     'node2': 2
+        # },
+        # {
+        #     'exp': 'A = Swarm 5 nodes (1000 rows/node) vs B = Swarm 5 nodes (2000 rows/node)',
+        #     'dir1': '../results/heatmap_experiments_1000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_2000rows_5nodes',
+        #     'file2': 'swarm_results.csv',
+        #     'node2': 5
+        # },
+        # {
+        #     'exp': 'A = Swarm 5 nodes (2000 rows/node) vs B = Swarm 10 nodes (1000 rows/node)',
+        #     'dir1': '../results/heatmap_experiments_2000rows_5nodes',
+        #     'file1': 'swarm_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_1000rows_10nodes',
+        #     'file2': 'swarm_results.csv',
+        #     'node2': 10
+        # },
+        # {
+        #     'exp': 'A = Centralized (10000 rows - 2000 rows/node) vs B = Centralized (10000 rows - 1000 rows/node)',
+        #     'dir1': '../results/heatmap_experiments_2000rows_5nodes',
+        #     'file1': 'central_results.csv',
+        #     'node1': 5,
+        #     'dir2': '../results/heatmap_experiments_1000rows_10nodes',
+        #     'file2': 'central_results.csv',
+        #     'node2': 10
+        # },
         {
-            'exp': 'A = Swarm 5nodes (1000 rows/node) vs B = Centralized (5000 rows)',
+            'exp': 'A = Swarm 5 nodes (1000 rows/node) vs B = Swarm 10 nodes (1000 rows/node)',
             'dir1': '../results/heatmap_experiments_1000rows_5nodes',
             'file1': 'swarm_results.csv',
             'node1': 5,
-            'dir2': '../results/heatmap_experiments_1000rows_5nodes',
-            'file2': 'central_results.csv',
-            'node2': 5
-        },
-        {
-            'exp': 'A = Swarm 5 nodes (2000 rows/node) vs B = Centralized (10000 rows)',
-            'dir1': '../results/heatmap_experiments_2000rows_5nodes',
-            'file1': 'swarm_results.csv',
-            'node1': 5,
-            'dir2': '../results/heatmap_experiments_2000rows_5nodes',
-            'file2': 'central_results.csv',
-            'node2': 5
-        },
-        {
-            'exp': 'A = Swarm 5 nodes (4000 rows/node) vs B = Centralized (20000 rows)',
-            'dir1': '../results/heatmap_experiments_4000rows_5nodes',
-            'file1': 'swarm_results.csv',
-            'node1': 5,
-            'dir2': '../results/heatmap_experiments_4000rows_5nodes',
-            'file2': 'central_results.csv',
-            'node2': 5
-        },
-        {
-            'exp': 'A = Swarm 5 nodes (1000 rows/node) vs B = Swarm 2 nodes (1000 rows/node)',
-            'dir1': '../results/heatmap_experiments_1000rows_5nodes',
-            'file1': 'swarm_results.csv',
-            'node1': 5,
-            'dir2': '../results/heatmap_experiments_1000rows_2nodes',
+            'dir2': '../results/heatmap_experiments_1000rows_10nodes',
             'file2': 'swarm_results.csv',
-            'node2': 2
+            'node2': 10
         },
         {
-            'exp': 'A = Swarm 5 nodes (1000 rows/node) vs B = Swarm 5 nodes (2000 rows/node)',
-            'dir1': '../results/heatmap_experiments_1000rows_5nodes',
+            'exp': 'A = Swarm 4 nodes vs B = Centralized (entire mimic iii)',
+            'dir1': '../results/heatmap_experiments_4nodes_iii',
             'file1': 'swarm_results.csv',
-            'node1': 5,
-            'dir2': '../results/heatmap_experiments_2000rows_5nodes',
-            'file2': 'swarm_results.csv',
-            'node2': 5
+            'node1': 4,
+            'dir2': '../results/heatmap_experiments_4nodes_iii',
+            'file2': 'central_results.csv',
+            'node2': 4
+        },
+        {
+            'exp': 'A = Swarm 4 nodes vs B = Centralized (entire mimic iv)',
+            'dir1': '../results/heatmap_experiments_4nodes_iv',
+            'file1': 'swarm_results.csv',
+            'node1': 4,
+            'dir2': '../results/heatmap_experiments_4nodes_iv',
+            'file2': 'central_results.csv',
+            'node2': 4
         }
     ]
     
     for comp in comparisons:
-        try_plot_comparison(comp)
+        try_plot_comparison(comp, discrete=True)
